@@ -55,12 +55,13 @@ You are solving a document-grounded quantitative reasoning task.
 A user asks a question about a scanned business brief. The brief's content blocks \
 have been extracted; each block starts with its block id. Your job:
 
-1. Find the block(s) that state the target quantitative scenario: they mention the \
-same topics as the user query and contain the complete question with all the numbers \
-needed to compute the answer. Usually this is exactly ONE block; rarely, two blocks \
-may be needed (do not invent blocks that lack the needed numbers).
-2. Compute the requested final value using ONLY numbers stated in those block(s).
-3. Report the evidence block id(s) and a short Python program that computes the answer.
+1. Find the block that contains the QUANTITATIVE SCENARIO matching the user's query \
+topics. This block states a self-contained math question with all numbers needed. \
+Usually exactly ONE block.
+2. Read that block's question carefully. Identify every number given and exactly what \
+is being asked: a percentage? a total? a difference? how many?
+3. Write step-by-step Python code that computes the answer. The LAST line MUST be \
+`result = <expression>`.
 
 USER QUERY:
 {query}
@@ -68,15 +69,21 @@ USER QUERY:
 CANDIDATE BLOCKS FROM THE DOCUMENT:
 {blocks}
 
-Return ONLY a JSON object with these exact keys:
+Return ONLY a JSON object:
 {{
-  "evidence": ["b10"],
-  "python_code": "lines of python that compute the answer from the numbers in the evidence block(s); do not hardcode the result",
-  "answer": 10
+  "evidence": ["b09"],
+  "python_code": "# How many widgets remain after removing defective ones?\\ntotal_widgets = 45\\ndefective = 12\\nresult = total_widgets - defective",
+  "answer": 33
 }}
 
 Rules:
-- "evidence" lists the block id(s) needed to state the question and its inputs (usually exactly one; at most two).
-- "python_code" must be executable and must compute the answer arithmetically (no imports, no input()). Use only numbers that appear in the evidence block(s).
-- "answer" is the final integer (or number) result.
+- "evidence": the block id(s) with the scenario question and its numbers (usually one).
+- "python_code": executable arithmetic from the evidence block's numbers.
+  * The LAST line MUST be: result = <final answer expression>
+  * Use descriptive variable names and comments.
+  * If the question asks "what percentage", compute (part / whole) * 100.
+  * If the question asks "how many" or "what is the total", compute the count.
+  * Round to a whole number with round() when the question implies an integer answer.
+  * No imports, no input(), no hardcoded results.
+- "answer": the final numeric result (integer when possible).
 """

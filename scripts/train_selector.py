@@ -141,6 +141,7 @@ def evaluate_recall(selector_dir: Path, data_dir: Path, k_values=(1, 3, 5, 8)) -
         dev_ids = set(sorted(t["instance_id"] for t in tasks)[: max(1, int(len(tasks) * 0.1))])
     hits = {k: 0 for k in k_values}
     n_tasks = 0
+    n_tasks_with_gold = 0
     for task in tasks:
         tid = task["instance_id"]
         if tid not in dev_ids:
@@ -150,14 +151,20 @@ def evaluate_recall(selector_dir: Path, data_dir: Path, k_values=(1, 3, 5, 8)) -
             continue
         blocks = load_blocks(bp)
         gold = set(labels[tid]["evidence"])
+        if gold & {b["id"] for b in blocks}:
+            n_tasks_with_gold += 1
         ranked = sel.rank_blocks(task["user_query"], blocks)
         for k in k_values:
             top = {i for i, _ in ranked[:k]}
             hits[k] += int(bool(gold & top))
         n_tasks += 1
-    print(f"selector recall@{k_values} over {n_tasks} dev tasks:")
+    print(f"selector recall@{k_values} over {n_tasks} dev tasks (end-to-end):")
     for k in k_values:
         print(f"  recall@{k} = {hits[k] / n_tasks:.4f}")
+    if n_tasks_with_gold and n_tasks_with_gold != n_tasks:
+        print(f"selector recall@{k_values} over {n_tasks_with_gold} dev tasks with gold block OCR'd:")
+        for k in k_values:
+            print(f"  recall@{k} = {hits[k] / n_tasks_with_gold:.4f}")
 
 
 if __name__ == "__main__":

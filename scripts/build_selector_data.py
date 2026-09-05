@@ -99,7 +99,8 @@ def main() -> None:
             rows.append({"instance_id": tid, "query": query, "text": b["text"], "label": 0})
 
     rng.shuffle(rows)
-    dev_ids = set(rng.sample([t["instance_id"] for t in tasks], max(1, int(len(tasks) * args.dev_frac))))
+    valid_tids = sorted(list({r["instance_id"] for r in rows}))
+    dev_ids = set(rng.sample(valid_tids, max(1, int(len(valid_tids) * args.dev_frac))))
     dev = [r for r in rows if r["instance_id"] in dev_ids]
     train = [r for r in rows if r["instance_id"] not in dev_ids]
 

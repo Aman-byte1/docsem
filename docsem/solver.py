@@ -19,6 +19,16 @@ from .llm import LLMClient
 from .normalize import exec_python, extract_json_object, normalize_answer
 
 _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_PCT_RE = re.compile(r'\bpercentage\b|\bpercent\b|\b%\b', re.IGNORECASE)
+
+
+def _try_float(val: str | None) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
 
 def _literals_ratio(code: str, evidence_text: str) -> float:
@@ -116,6 +126,11 @@ def solve_task(
         p["exec_matches_stated"] = bool(exec_ans is not None and stated is not None and exec_ans == stated)
         if exec_ans is not None:
             p["answer"] = exec_ans
+        # Fix percentage: model computes 0.25 instead of 25
+        ans_val = _try_float(p.get("answer"))
+        if ans_val is not None and 0 < ans_val < 1 and _PCT_RE.search(query):
+            corrected = ans_val * 100
+            p["answer"] = normalize_answer(str(corrected))
         executed.append(p)
 
     all_ids = {b["id"] for b in blocks}

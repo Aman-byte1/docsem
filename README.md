@@ -77,29 +77,23 @@ LM Studio.)
 - **Disk**: 60 GB+ (vLLM model cache is ~16 GB)
 - Expose **port 8000** (TCP) if you want me to query the server, otherwise SSH-only is fine.
 
-### 1. Clone + setup (one command)
+### 1. Clone + setup + server start (ONE command, handles everything)
 
 ```bash
-git clone https://github.com/Aman-byte1/docsem.git && cd docsem && bash setup_runpod.sh
+git clone https://github.com/Aman-byte1/docsem.git 2>/dev/null; cd docsem && git pull && bash setup_runpod.sh
 ```
 
-`setup_runpod.sh` installs dependencies and downloads the dataset into `data/`
-(train + val + examples, ~1.3 GB).
+`setup_runpod.sh` is **idempotent** and installs the exact working stack we validated
+on the first pod (vllm 0.11.0 + torch 2.8.0+cu128 + cuDNN 9.7.1.26 + transformers
+4.55.2 — newer versions break on the pod's CUDA-12.8 driver), downloads the dataset,
+starts the vLLM server on :8000 and waits for readiness. Re-running it is always safe.
 
-### 2. Start the vLLM server (Qwen2.5-VL for OCR **and** solving)
+> On a pod where the vLLM server died mid-session, just run `bash scripts/setup_vllm.sh`
+> again — it reuses the downloaded model weights.
 
-```bash
-nohup vllm serve Qwen/Qwen2.5-VL-7B-Instruct \
-  --port 8000 \
-  --max-model-len 8192 \
-  --gpu-memory-utilization 0.9 \
-  --limit-mm-per-prompt image=2 \
-  > vllm.log 2>&1 &
+### 2. (Already done by setup_runpod.sh — vLLM serves Qwen2.5-VL-7B on :8000)
 
-# wait for it to be ready (takes a few minutes to load the weights)
-until curl -s http://localhost:8000/v1/models | grep -q Qwen; do sleep 5; done
-echo "vLLM ready"
-```
+Model id on the server is `/workspace/qwen25vl` — pass it as `--llm-model /workspace/qwen25vl`.
 
 ### 3. OCR every PDF into blocks
 

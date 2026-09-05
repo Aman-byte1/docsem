@@ -4,7 +4,7 @@
 This is how a NEW pod skips all finished work: push the parsed blocks/selector/
 predictions once, and on any future pod `pull` restores them instantly.
 
-Repo: amanuelbyte/docsem (private HF dataset)
+Repo: amanuelbyte/docsem-artifacts (private HF dataset, artifacts only)
 Dirs synced: data/blocks, data/predictions, data/submission, models/selector
 
 Usage (on the pod or locally):
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, snapshot_download
 
-REPO = os.environ.get("DOCSEM_HF_REPO", "amanuelbyte/docsem")
+REPO = os.environ.get("DOCSEM_HF_REPO", "amanuelbyte/docsem-artifacts")
 DIRS = [
     "data/blocks",
     "data/predictions",

@@ -52,5 +52,5 @@ PY
 echo "==> [4/4] Starting vLLM on port $PORT (log: vllm.log)"
 pkill -f "vllm serve" 2>/dev/null || true
 nohup vllm serve "$MODEL_DIR" --port "$PORT" --max-model-len 8192 --gpu-memory-utilization 0.9 > vllm.log 2>&1 &
-until curl -s "http://localhost:$PORT/v1/models" | grep -q Qwen; do sleep 5; done
+until curl -s "http://localhost:$PORT/v1/models" | grep -qi "qwen"; do sleep 5; done
 echo "VLLM READY on port $PORT"

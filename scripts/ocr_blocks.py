@@ -49,14 +49,14 @@ def ocr_page_vlm(client: LLMClient, page_png: Path) -> list[dict]:
     return parsed
 
 
-def ocr_task_vlm(client: LLMClient, task: dict, data_dir: Path, split: str) -> list[dict]:
+def ocr_task_vlm(client: LLMClient, task: dict, data_dir: Path, split: str) -> tuple[list[dict], int]:
     pages = sorted((data_dir / "pages" / split / task["instance_id"]).glob("p*.png"))
     blocks: list[dict] = []
     for pno, png in enumerate(pages, start=1):
         for b in ocr_page_vlm(client, png):
             b["page"] = pno
             blocks.append(b)
-    return blocks
+    return blocks, len(pages)
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ def ocr_task_vlm(client: LLMClient, task: dict, data_dir: Path, split: str) -> l
 _ID_START = re.compile(r"^\s*\bb\s*[oO0]?\s*(\d{1,2})\s*[:.]", re.IGNORECASE)
 
 
-def ocr_task_rapidocr(task: dict, data_dir: Path, split: str, dpi: int) -> list[dict]:
+def ocr_task_rapidocr(task: dict, data_dir: Path, split: str, dpi: int) -> tuple[list[dict], int]:
     from rapidocr_onnxruntime import RapidOCR
 
     ocr = RapidOCR()
@@ -102,7 +102,7 @@ def ocr_task_rapidocr(task: dict, data_dir: Path, split: str, dpi: int) -> list[
             blocks.append({"id": cur_id, "text": " ".join(cur_text)})
     for b in blocks:
         b["page"] = 1  # page info is approximate here; keep 1-based block order
-    return blocks
+    return blocks, npages
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +145,9 @@ def main() -> None:
         if not pdf.exists():
             return tid, -1, 0.0
         if client is not None:
-            blocks = ocr_task_vlm(client, task, data_dir, args.split)
+            blocks, npages = ocr_task_vlm(client, task, data_dir, args.split)
         else:
-            blocks = ocr_task_rapidocr(task, data_dir, args.split, args.dpi)
+            blocks, npages = ocr_task_rapidocr(task, data_dir, args.split, args.dpi)
         # dedupe by id, keep longest text
         by_id: dict[str, dict] = {}
         for b in blocks:
@@ -155,7 +155,7 @@ def main() -> None:
                 by_id[b["id"]] = b
         final = [by_id[k] for k in sorted(by_id)]
         with open(blocks_path_for(tid, args.split, data_dir), "w", encoding="utf-8") as f:
-            json.dump({"pages": len(todo), "blocks": final}, f, ensure_ascii=False)
+            json.dump({"pages": npages, "blocks": final}, f, ensure_ascii=False)
         return tid, len(final), time.time() - t0
 
     done = 0

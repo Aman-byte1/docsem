@@ -65,8 +65,13 @@ def load_blocks(blocks_json: str | Path) -> list[dict]:
 
 
 def blocks_to_text(blocks: Iterable[dict]) -> str:
-    """Format blocks for a prompt."""
-    return "\n".join(f"[{b['id']}] {b['text']}" for b in blocks)
+    """Format blocks for a prompt, with page info where available."""
+    out = []
+    for b in blocks:
+        page = b.get("page")
+        label = f"{b['id']} p{page}" if page else b["id"]
+        out.append(f"[{label}] {b['text']}")
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +91,10 @@ def score_blocks_lexical(query: str, blocks: list[dict]) -> list[tuple[str, floa
     for i, b in enumerate(blocks):
         text_l = b["text"].lower()
         overlap = sum(1 for w in topics if w in text_l)
-        question_bonus = 0.5 if re.search(r"\?|\bwhat\b|\bhow many\b|\bhow much\b", text_l) else 0.0
-        out.append((b["id"], scores[i] + 2.0 * overlap + question_bonus))
+        # the gold block is the one that ASKS the question; many blocks share the
+        # topic words, so a direct-question signal must dominate.
+        question_bonus = 2.0 if re.search(r"\?|\bwhat\b|\bhow many\b|\bhow much\b", text_l) else 0.0
+        numeric_bonus = 0.5 if re.search(r"\d", text_l) else 0.0
+        out.append((b["id"], scores[i] + 2.0 * overlap + question_bonus + numeric_bonus))
     out.sort(key=lambda x: x[1], reverse=True)
     return out

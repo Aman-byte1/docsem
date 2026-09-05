@@ -18,6 +18,26 @@ from .config import SOLVE_PROMPT, DEFAULT_TOP_K
 from .llm import LLMClient
 from .normalize import exec_python, extract_json_object, normalize_answer
 
+_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _literals_ratio(code: str, evidence_text: str) -> float:
+    """Fraction of the code's numeric literals that appear in the evidence text.
+
+    A low ratio suggests the code invented numbers (or OCR garbled them) — a
+    soft signal, because legitimate constants (e.g. 12 inches per foot) may
+    not be printed."""
+    if not code or not evidence_text:
+        return 0.0
+    nums = _NUM_RE.findall(code)
+    if not nums:
+        return 1.0
+    found = 0
+    for num in nums:
+        if re.search(rf"(?<!\d){re.escape(num)}(?!\d)", evidence_text):
+            found += 1
+    return found / len(nums)
+
 
 def _parse_solution(text: str) -> dict[str, Any] | None:
     obj = extract_json_object(text)
@@ -87,8 +107,13 @@ def solve_task(
     executed = []
     for p in valid:
         code = p.get("python_code") or ""
+        ev_text = " ".join(b["text"] for b in candidates if b["id"] in p.get("evidence", []))
+        p["literals_ratio"] = _literals_ratio(code, ev_text)
+        stated = p.get("answer")
         exec_ans = exec_python(code) if code.strip() else None
         p["exec_answer"] = exec_ans
+        p["stated_answer"] = stated
+        p["exec_matches_stated"] = bool(exec_ans is not None and stated is not None and exec_ans == stated)
         if exec_ans is not None:
             p["answer"] = exec_ans
         executed.append(p)
@@ -100,7 +125,20 @@ def solve_task(
         p["evidence"] = ev
         cleaned.append(p)
 
-    # ---- self-consistency: majority vote on normalized answer -----------------
+    # ---- self-consistency: weighted vote on normalized answer -----------------
+    def sample_weight(p: dict) -> float:
+        w = 1.0
+        if p.get("exec_answer") is not None:
+            w += 0.5
+        if p.get("exec_matches_stated"):
+            w += 0.3
+        if p.get("evidence"):
+            w += 0.2
+        # continuous signal: ratio 0 -> -0.5, ratio 1 -> +0.5 (neutral at 0.5)
+        ratio = p.get("literals_ratio", 0.0)
+        w += (2 * ratio - 1) * 0.5
+        return w
+
     groups: dict[str, list[dict]] = {}
     for p in cleaned:
         if p.get("answer"):
@@ -108,15 +146,15 @@ def solve_task(
 
     chosen: dict[str, Any] | None = None
     if groups:
-        best = max(groups.values(), key=lambda g: (len(g), sum(1 for p in g if p.get("exec_answer"))))
-        # within the winning answer group, pick the most common non-empty evidence
-        ev_counts: dict[tuple, int] = {}
+        best = max(groups.values(), key=lambda g: (sum(sample_weight(p) for p in g), len(g)))
+        # within the winning answer group, pick the highest-weighted non-empty evidence
+        ev_weights: dict[tuple, float] = {}
         for p in best:
             key = tuple(sorted(p.get("evidence", [])))
             if key:
-                ev_counts[key] = ev_counts.get(key, 0) + 1
-        if ev_counts:
-            ev = list(max(ev_counts.items(), key=lambda kv: kv[1])[0])
+                ev_weights[key] = ev_weights.get(key, 0.0) + sample_weight(p)
+        if ev_weights:
+            ev = list(max(ev_weights.items(), key=lambda kv: kv[1])[0])
         elif best and best[0].get("evidence"):
             ev = best[0]["evidence"]
         else:

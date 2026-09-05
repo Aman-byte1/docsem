@@ -31,7 +31,7 @@ class EvidenceSelector:
                 [query] * len(batch),
                 batch,
                 truncation=True,
-                max_length=256,
+                max_length=512,
                 padding=True,
                 return_tensors="pt",
             ).to(self.device)

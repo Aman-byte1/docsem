@@ -41,7 +41,7 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=5)
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=2e-5)
-    ap.add_argument("--max-length", type=int, default=256)
+    ap.add_argument("--max-length", type=int, default=512)
     ap.add_argument("--eval-recall", action="store_true", help="rank dev blocks after training")
     args = ap.parse_args()
 
@@ -131,9 +131,16 @@ def evaluate_recall(selector_dir: Path, data_dir: Path, k_values=(1, 3, 5, 8)) -
     sel = EvidenceSelector(selector_dir)
     tasks = split_tasks("train", data_dir)
     labels = load_labels(data_dir / "train" / "labels.jsonl")
-    # reuse the same dev split as build_selector_data (first 10% by sorted id)
-    dev_ids = set(sorted(t["instance_id"] for t in tasks)[: max(1, int(len(tasks) * 0.1))])
-    n, hits = {k: 0 for k in k_values}, 0
+    dev_ids_file = data_dir / "selector" / "dev_ids.json"
+    if dev_ids_file.exists():
+        import json as _json
+
+        dev_ids = set(_json.loads(dev_ids_file.read_text(encoding="utf-8")))
+    else:
+        print("WARNING: data/selector/dev_ids.json not found — falling back to first 10% by id")
+        dev_ids = set(sorted(t["instance_id"] for t in tasks)[: max(1, int(len(tasks) * 0.1))])
+    hits = {k: 0 for k in k_values}
+    n_tasks = 0
     for task in tasks:
         tid = task["instance_id"]
         if tid not in dev_ids:
@@ -144,14 +151,13 @@ def evaluate_recall(selector_dir: Path, data_dir: Path, k_values=(1, 3, 5, 8)) -
         blocks = load_blocks(bp)
         gold = set(labels[tid]["evidence"])
         ranked = sel.rank_blocks(task["user_query"], blocks)
-        n_total = sum(1 for b in blocks if b["id"] in gold)
         for k in k_values:
             top = {i for i, _ in ranked[:k]}
             hits[k] += int(bool(gold & top))
-        n += 1
-    print(f"selector recall@{k_values} over {n} dev tasks:")
+        n_tasks += 1
+    print(f"selector recall@{k_values} over {n_tasks} dev tasks:")
     for k in k_values:
-        print(f"  recall@{k} = {hits[k] / n:.4f}")
+        print(f"  recall@{k} = {hits[k] / n_tasks:.4f}")
 
 
 if __name__ == "__main__":

@@ -99,19 +99,20 @@ def main() -> None:
     written = 0
     lock = __import__("threading").Lock()
     meta_path = out_path.with_name("meta.jsonl")
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = [ex.submit(work, t) for t in todo]
-        for fut in as_completed(futs):
-            row = fut.result()
-            line = {"instance_id": row["instance_id"], "answer": row.get("answer"), "evidence": row.get("evidence") or []}
-            with lock:
-                with open(out_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(line, ensure_ascii=False) + "\n")
-                with open(meta_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"instance_id": row["instance_id"], "meta": row.get("meta", {})}, ensure_ascii=False) + "\n")
-            written += 1
-            if written % 25 == 0 or written == len(todo):
-                print(f"  [{written}/{len(todo)}] {line['instance_id']} answer={line['answer']} evidence={line['evidence']}")
+    # fresh run: truncate so no duplicates; resume: append
+    mode = "a" if args.resume else "w"
+    with open(out_path, mode, encoding="utf-8") as f_out, open(meta_path, mode, encoding="utf-8") as f_meta:
+        with ThreadPoolExecutor(max_workers=args.workers) as ex:
+            futs = [ex.submit(work, t) for t in todo]
+            for fut in as_completed(futs):
+                row = fut.result()
+                line = {"instance_id": row["instance_id"], "answer": row.get("answer"), "evidence": row.get("evidence") or []}
+                with lock:
+                    f_out.write(json.dumps(line, ensure_ascii=False) + "\n")
+                    f_meta.write(json.dumps({"instance_id": row["instance_id"], "meta": row.get("meta", {})}, ensure_ascii=False) + "\n")
+                written += 1
+                if written % 25 == 0 or written == len(todo):
+                    print(f"  [{written}/{len(todo)}] {line['instance_id']} answer={line['answer']} evidence={line['evidence']}")
 
     print(f"Done. Predictions: {out_path}")
 

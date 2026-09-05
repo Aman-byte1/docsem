@@ -13,9 +13,29 @@ from openai import OpenAI
 
 
 class LLMClient:
-    def __init__(self, base_url: str, model: str, api_key: str = "EMPTY", timeout: float = 300.0):
+    def __init__(self, base_url: str, model: str | None, api_key: str = "EMPTY", timeout: float = 300.0):
         self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
-        self.model = model
+        self.model = model or ""
+        self._resolve_model()
+
+    def _resolve_model(self) -> None:
+        """Auto-switch to the server's actual model id.
+
+        vLLM serves models under the path they were launched with (e.g.
+        "/workspace/qwen25vl"), and 404s any other name. Instead of failing
+        after retries, ask /v1/models and use what the server actually serves.
+        """
+        try:
+            ids = [m.id for m in self.client.models.list().data]
+        except Exception:  # server not reachable yet; leave as-is (retries handle it)
+            return
+        if not ids:
+            return
+        if self.model in ids:
+            return
+        chosen = ids[0]
+        print(f"[llm] '{self.model or 'default'}' not served; using '{chosen}'")
+        self.model = chosen
 
     @staticmethod
     def _retry(fn, tries: int = 4, backoff: float = 2.0):

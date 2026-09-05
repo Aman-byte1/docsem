@@ -1,0 +1,16 @@
+# data (downloaded PDFs, rendered pages, OCR blocks, predictions)
+data/
+
+# trained models
+models/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# misc
+.DS_Store
+*.log
+*.tmp

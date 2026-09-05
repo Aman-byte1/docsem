@@ -1,0 +1,11 @@
+# Core dependencies (RunPod A100: torch is preinstalled in the container)
+pymupdf>=1.24
+openai>=1.30
+huggingface_hub>=0.24
+transformers>=4.44,<5
+datasets>=2.20
+accelerate>=0.33
+safetensors
+rank-bm25>=0.2.2
+tqdm
+numpy

@@ -127,10 +127,13 @@ def solve_task(
         if exec_ans is not None:
             p["answer"] = exec_ans
         # Fix percentage: model computes 0.25 instead of 25
+        # Check both query AND evidence block text for "percentage"/"percent"
         ans_val = _try_float(p.get("answer"))
-        if ans_val is not None and 0 < ans_val < 1 and _PCT_RE.search(query):
-            corrected = ans_val * 100
-            p["answer"] = normalize_answer(str(corrected))
+        if ans_val is not None and 0 < ans_val < 1:
+            pct_context = _PCT_RE.search(query) or _PCT_RE.search(ev_text)
+            if pct_context:
+                corrected = ans_val * 100
+                p["answer"] = normalize_answer(str(corrected))
         executed.append(p)
 
     all_ids = {b["id"] for b in blocks}

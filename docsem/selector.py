@@ -40,6 +40,25 @@ class EvidenceSelector:
             scores.extend(probs)
         return scores
 
+    def score_with_logits(self, query: str, block_texts: list[str], batch_size: int = 32) -> list[float]:
+        """Return raw positive-class logits (not softmaxed) — needed for RL gradients."""
+        all_logits: list[float] = []
+        for i in range(0, len(block_texts), batch_size):
+            batch = block_texts[i : i + batch_size]
+            enc = self.tokenizer(
+                [query] * len(batch),
+                batch,
+                truncation=True,
+                max_length=512,
+                padding=True,
+                return_tensors="pt",
+            ).to(self.device)
+            out = self.model(**enc).logits
+            # Positive-class logit (index 1) minus negative (index 0) = log-odds
+            log_odds = (out[:, 1] - out[:, 0]).tolist()
+            all_logits.extend(log_odds)
+        return all_logits
+
     def rank_blocks(self, query: str, blocks: list[dict], top_k: int | None = None) -> list[tuple[str, float]]:
         """Return [(id, score)] for all blocks, sorted desc."""
         texts = [b["text"] for b in blocks]

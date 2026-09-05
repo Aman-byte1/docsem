@@ -19,7 +19,7 @@ from .llm import LLMClient
 from .normalize import exec_python, extract_json_object, normalize_answer
 
 _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
-_PCT_RE = re.compile(r'\bpercentage\b|\bpercent\b|\b%\b', re.IGNORECASE)
+_PCT_RE = re.compile(r'\bpercentage\b|\bpercent\b|\bprobability\b|\b%\b', re.IGNORECASE)
 
 
 def _try_float(val: str | None) -> float | None:

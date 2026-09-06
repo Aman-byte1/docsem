@@ -4,7 +4,11 @@
 Keeps answers unchanged — only fixes evidence attribution.
 """
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from docsem.blocks import load_blocks
 from docsem.data import split_tasks
 from docsem.selector import EvidenceSelector

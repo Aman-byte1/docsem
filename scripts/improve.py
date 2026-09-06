@@ -117,8 +117,8 @@ def process_task(client, task, blocks, old_pred):
     old_ans = old_pred["answer"]
     old_ev = old_pred["evidence"]
 
-    # Decision logic
-    final_ev = [evidence_id] if new_ev else old_ev
+    # Decision logic — KEEP old evidence (selector is 88.9%); only improve answers
+    final_ev = old_ev
     if new_ans and new_ans == old_ans:
         # Both agree — high confidence, keep answer
         final_ans = old_ans

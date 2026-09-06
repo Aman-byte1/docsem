@@ -6,6 +6,8 @@ For a task we:
 3. execute the python (sandboxed) and trust the executed result over the stated answer,
 4. majority-vote the normalized answer; evidence = majority evidence among the
    winning answer group, cleaned to valid block ids.
+5. if no answer wins a strict majority, run ONE reflection pass: show the
+   disagreement to the LLM and sample 3 careful re-solutions, then vote again.
 """
 from __future__ import annotations
 
@@ -14,7 +16,7 @@ import re
 from typing import Any
 
 from .blocks import load_blocks, normalize_block_id, score_blocks_lexical, blocks_to_text
-from .config import SOLVE_PROMPT, DEFAULT_TOP_K
+from .config import SOLVE_PROMPT, REFLECT_PROMPT, DEFAULT_TOP_K
 from .llm import LLMClient
 from .normalize import exec_python, extract_json_object, normalize_answer
 
@@ -79,6 +81,49 @@ def _candidates(query: str, blocks: list[dict], selector, top_k: int = DEFAULT_T
     return [by_id[i] for i, _ in ranked if i in by_id]
 
 
+def _execute_samples(texts: list[str], candidates: list[dict], query: str) -> list[dict]:
+    """Parse LLM outputs, execute the code, and annotate each sample.
+
+    The executed result is ground truth for the answer.
+    """
+    parsed = [_parse_solution(t) for t in texts]
+    valid = [p for p in parsed if p and (p["answer"] or p["python_code"])]
+
+    out: list[dict] = []
+    for p in valid:
+        code = p.get("python_code") or ""
+        ev_text = " ".join(b["text"] for b in candidates if b["id"] in p.get("evidence", []))
+        p["literals_ratio"] = _literals_ratio(code, ev_text)
+        stated = p.get("answer")
+        exec_ans = exec_python(code) if code.strip() else None
+        p["exec_answer"] = exec_ans
+        p["stated_answer"] = stated
+        p["exec_matches_stated"] = bool(exec_ans is not None and stated is not None and exec_ans == stated)
+        if exec_ans is not None:
+            p["answer"] = exec_ans
+        # Fix percentage: model computes 0.25 instead of 25
+        # Check both query AND evidence block text for "percentage"/"percent"
+        ans_val = _try_float(p.get("answer"))
+        if ans_val is not None and 0 < ans_val < 1:
+            pct_context = _PCT_RE.search(query) or _PCT_RE.search(ev_text)
+            if pct_context:
+                corrected = ans_val * 100
+                p["answer"] = normalize_answer(str(corrected))
+        out.append(p)
+    return out
+
+
+def _attempts_desc(samples: list[dict], limit: int = 6) -> str:
+    """Compact description of disagreed samples for the reflection prompt."""
+    lines = []
+    for i, p in enumerate(samples[:limit], 1):
+        lines.append(
+            f"sample {i}: evidence={p.get('evidence')} stated={p.get('stated_answer')} "
+            f"executed={p.get('exec_answer')} final={p.get('answer')}"
+        )
+    return "\n".join(lines) if lines else "(no parsable samples)"
+
+
 def solve_task(
     client: LLMClient,
     llm_model: str,
@@ -110,31 +155,37 @@ def solve_task(
         system="You return only valid JSON. Be precise with arithmetic.",
     )
 
-    parsed = [_parse_solution(t) for t in texts]
-    valid = [p for p in parsed if p and (p["answer"] or p["python_code"])]
+    executed = _execute_samples(texts, candidates, query)
 
-    # Execute python_code where present; the executed result is ground truth for the answer.
-    executed = []
-    for p in valid:
-        code = p.get("python_code") or ""
-        ev_text = " ".join(b["text"] for b in candidates if b["id"] in p.get("evidence", []))
-        p["literals_ratio"] = _literals_ratio(code, ev_text)
-        stated = p.get("answer")
-        exec_ans = exec_python(code) if code.strip() else None
-        p["exec_answer"] = exec_ans
-        p["stated_answer"] = stated
-        p["exec_matches_stated"] = bool(exec_ans is not None and stated is not None and exec_ans == stated)
-        if exec_ans is not None:
-            p["answer"] = exec_ans
-        # Fix percentage: model computes 0.25 instead of 25
-        # Check both query AND evidence block text for "percentage"/"percent"
-        ans_val = _try_float(p.get("answer"))
-        if ans_val is not None and 0 < ans_val < 1:
-            pct_context = _PCT_RE.search(query) or _PCT_RE.search(ev_text)
-            if pct_context:
-                corrected = ans_val * 100
-                p["answer"] = normalize_answer(str(corrected))
-        executed.append(p)
+    # Reflection pass: if no answer wins a strict majority, re-ask once with
+    # the disagreement laid out — rescues tail cases cheaply.
+    vote_counts: dict[str, int] = {}
+    for p in executed:
+        if p.get("answer"):
+            vote_counts[p["answer"]] = vote_counts.get(p["answer"], 0) + 1
+    reflected = False
+    if executed and vote_counts:
+        top_count = max(vote_counts.values())
+        n_answered = sum(vote_counts.values())
+        if top_count * 2 <= n_answered and len(vote_counts) > 1:
+            r_prompt = REFLECT_PROMPT.format(
+                n=n_answered,
+                attempts=_attempts_desc(executed),
+                query=query,
+                blocks=blocks_to_text(candidates),
+            )
+            try:
+                r_texts = client.chat(
+                    r_prompt,
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                    n=3,
+                    system="You return only valid JSON. Be precise with arithmetic.",
+                )
+                executed.extend(_execute_samples(r_texts, candidates, query))
+                reflected = True
+            except Exception:  # noqa: BLE001 - reflection is best-effort
+                pass
 
     all_ids = {b["id"] for b in blocks}
     cleaned = []
@@ -187,6 +238,9 @@ def solve_task(
     else:
         chosen = {"answer": None, "evidence": [candidates[0]["id"]],
                   "meta": {"votes": 0, "samples": 0, "error": "no parseable samples"}}
+
+    if reflected:
+        chosen["meta"]["reflected"] = True
 
     # Ensure evidence is non-empty and valid
     if not chosen["evidence"]:

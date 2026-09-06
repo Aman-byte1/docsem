@@ -6,6 +6,7 @@ self-consistency) and `chat_with_images` (page OCR with Qwen2.5-VL).
 from __future__ import annotations
 
 import base64
+import os
 import time
 from pathlib import Path
 
@@ -14,6 +15,9 @@ from openai import OpenAI
 
 class LLMClient:
     def __init__(self, base_url: str, model: str | None, api_key: str = "EMPTY", timeout: float = 300.0):
+        # Auto-detect API key: CLI arg > HF_TOKEN > OPENAI_API_KEY > "EMPTY"
+        if api_key == "EMPTY":
+            api_key = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY") or "EMPTY"
         self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self.model = model or ""
         self._resolve_model()
@@ -63,7 +67,7 @@ class LLMClient:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        def _call():
+        def _call_batch():
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -73,7 +77,25 @@ class LLMClient:
             )
             return [c.message.content or "" for c in resp.choices]
 
-        return self._retry(_call)
+        def _call_sequential():
+            """Fallback for APIs that don't support n>1 (HF, Gemini, etc.)."""
+            results = []
+            for _ in range(n):
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                results.append(resp.choices[0].message.content or "")
+            return results
+
+        try:
+            return self._retry(_call_batch)
+        except Exception:  # noqa: BLE001
+            if n > 1:
+                return self._retry(_call_sequential)
+            raise
 
     def chat_with_images(
         self,
@@ -108,8 +130,8 @@ class LLMClient:
         return self._retry(_call)
 
 
-def client_from_args(base_url: str | None, model: str | None, default_model: str) -> LLMClient | None:
+def client_from_args(base_url: str | None, model: str | None, default_model: str, api_key: str = "EMPTY") -> LLMClient | None:
     """Build a client from CLI args; None if no URL given (caller decides fallback)."""
     if not base_url:
         return None
-    return LLMClient(base_url=base_url, model=model or default_model)
+    return LLMClient(base_url=base_url, model=model or default_model, api_key=api_key)

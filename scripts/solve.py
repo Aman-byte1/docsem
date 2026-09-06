@@ -43,7 +43,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="only first N tasks (0 = all)")
     ap.add_argument("--out", default=None, help="predictions JSONL path (default data/predictions/{split}/predictions.jsonl)")
     ap.add_argument("--llm-url", required=True, help="OpenAI-compatible endpoint, e.g. http://localhost:8001/v1")
-    ap.add_argument("--llm-model", default="Qwen/Qwen2.5-7B-Instruct")
+    ap.add_argument("--llm-model", default="Qwen/Qwen3-4B-Instruct-2507")
     ap.add_argument("--selector", default="models/selector", help="trained selector dir (auto-skip if absent)")
     ap.add_argument("--top-k", type=int, default=8)
     ap.add_argument("--samples", type=int, default=10, help="self-consistency samples per task")

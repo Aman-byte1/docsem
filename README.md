@@ -21,15 +21,16 @@ PDF + user_query
    │  render pages (pymupdf)
    ▼
 page PNGs
-   │  OCR with Qwen2.5-VL (vLLM)  — or rapidocr locally
+   │  OCR with Qwen2.5-VL-3B (vLLM, :8000) + second-pass verification  — or rapidocr locally
    ▼
 structured blocks: [{id: "b10", text: "..."}, ...]
    │  evidence selector: DeBERTa cross-encoder trained on the 908 gold labels
    ▼
 top-k candidate blocks
-   │  solver: LLM writes a Python program (Program-of-Thought) over the evidence
+   │  solver: Qwen3-4B (:8001) writes a Python program (Program-of-Thought)
    ▼
 execute code sandboxed  →  self-consistency (N samples, majority vote)
+                          →  reflection pass when samples disagree
    ▼
 {answer, evidence: ["b10"]}   →  submission.jsonl
 ```
@@ -39,7 +40,14 @@ execute code sandboxed  →  self-consistency (N samples, majority vote)
 - **Answer computation** = Program-of-Thought: the LLM emits `python_code`, we execute
   it in a sandbox, and the **executed result overrides the model's stated answer**.
 - **Robustness** = self-consistency: sample N solutions, majority-vote the normalized
-  answer, and pick the most common evidence set among the winning group.
+  answer; if no answer wins a strict majority, ONE **reflection pass** re-solves with
+  the disagreement shown to the model (n=3, temperature 0) before voting again.
+- **OCR armor** = `--verify` double-checks every page's numbers/ids against the image
+  and merges the two readings; `scripts/audit_blocks.py` flags id gaps and truncated
+  blocks so they get re-OCR'd before they can poison training or solving.
+- **Small-model stack** = Qwen2.5-VL-**3B** for OCR + Qwen3-**4B**-Instruct-2507 for
+  solving (~22 GB total VRAM — both fit a single 40 GB A100 side by side). Accuracy
+  comes from the pipeline, not the parameter count.
 
 ## Repository layout
 
@@ -91,21 +99,24 @@ starts the vLLM server on :8000 and waits for readiness. Re-running it is always
 > On a pod where the vLLM server died mid-session, just run `bash scripts/setup_vllm.sh`
 > again — it reuses the downloaded model weights.
 
-### 2. (Already done by setup_runpod.sh — vLLM serves Qwen2.5-VL-7B on :8000)
+### 2. (Already done by setup_runpod.sh — OCR server on :8000, solver server on :8001)
 
-Model id on the server is `/workspace/qwen25vl` — pass it as `--llm-model /workspace/qwen25vl`.
+The LLM clients auto-detect the served model ids — no `--llm-model` needed.
 
-### 3. OCR every PDF into blocks
+### 3. OCR every PDF into blocks (with verification)
 
 ```bash
 python scripts/render_pdfs.py --split train
-python scripts/ocr_blocks.py --split train --engine vllm --llm-url http://localhost:8000/v1 --workers 8
+python scripts/ocr_blocks.py --split train --engine vllm --verify --llm-url http://localhost:8000/v1 --workers 8
 python scripts/render_pdfs.py --split val
-python scripts/ocr_blocks.py --split val   --engine vllm --llm-url http://localhost:8000/v1 --workers 8
+python scripts/ocr_blocks.py --split val   --engine vllm --verify --llm-url http://localhost:8000/v1 --workers 8
+python scripts/audit_blocks.py --split train    # quality gate: flags id gaps/truncation
 ```
 
 ~3,000–4,000 page images; a few minutes on the A100. Output:
-`data/blocks/{train,val}/{task_id}.json`.
+`data/blocks/{train,val}/{task_id}.json`. If the audit flags tasks, re-run
+`ocr_blocks.py` with `--verify` after `python scripts/audit_blocks.py --split train --fix`
+deletes the bad files.
 
 ### 4. Train the evidence selector (the "training" step, minutes on A100)
 
@@ -122,9 +133,8 @@ pairs (positives = gold evidence; hard negatives = same-topic wrong blocks).
 ### 5. Solve the train split and check accuracy (no labels needed for val, so use train first)
 
 ```bash
-python scripts/solve.py --split train --llm-url http://localhost:8000/v1 \
-    --llm-model Qwen/Qwen2.5-VL-7B-Instruct --selector models/selector \
-    --samples 10 --workers 8
+python scripts/solve.py --split train --llm-url http://localhost:8001/v1 \
+    --selector models/selector --samples 10 --workers 8
 python scripts/evaluate.py --predictions data/predictions/train/predictions.jsonl --errors 10
 ```
 
@@ -134,9 +144,8 @@ the `--errors` output and we tune (more samples, temperature, top-k, prompt).
 ### 6. Solve validation and build the submission
 
 ```bash
-python scripts/solve.py --split val --llm-url http://localhost:8000/v1 \
-    --llm-model Qwen/Qwen2.5-VL-7B-Instruct --selector models/selector \
-    --samples 10 --workers 8
+python scripts/solve.py --split val --llm-url http://localhost:8001/v1 \
+    --selector models/selector --samples 10 --workers 8
 python scripts/make_submission.py --predictions data/predictions/val/predictions.jsonl
 ```
 
@@ -146,21 +155,11 @@ non-empty evidence, valid `bNN` ids). Download that file and upload it at the
 
 ---
 
-## Faster solving (optional, two servers)
-
-If you want the text-only solver (faster than the VL model), start a second vLLM server
-and point `solve.py` at it:
+## If you only want the OCR server
 
 ```bash
-# start with --gpu-memory-utilization 0.45 for the VL server, then:
-nohup vllm serve Qwen/Qwen2.5-7B-Instruct --port 8001 --max-model-len 8192 \
-  --gpu-memory-utilization 0.45 > vllm-text.log 2>&1 &
-
-python scripts/solve.py --split train --llm-url http://localhost:8001/v1 \
-    --llm-model Qwen/Qwen2.5-7B-Instruct --selector models/selector ...
+bash scripts/setup_vllm.sh --single   # starts just the VL-3B OCR server on :8000
 ```
-
-(On a 40 GB A100 both 7B models fit with ~0.45 util each; on 80 GB it's comfortable.)
 
 ## Local CPU dev (optional, for the curious)
 

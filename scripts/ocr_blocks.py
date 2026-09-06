@@ -26,6 +26,7 @@ from docsem.config import OCR_PROMPT  # noqa: E402
 from docsem.data import blocks_path_for, pdf_path_for, split_tasks  # noqa: E402
 from docsem.llm import LLMClient  # noqa: E402
 from docsem.normalize import extract_json_array  # noqa: E402
+from docsem.ocr import verify_task  # noqa: E402
 from docsem.pdf import render_page_image  # noqa: E402
 
 
@@ -118,7 +119,9 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=8)
     # vllm engine
     ap.add_argument("--llm-url", default=None, help="e.g. http://localhost:8000/v1")
-    ap.add_argument("--llm-model", default="Qwen/Qwen2.5-VL-7B-Instruct")
+    ap.add_argument("--llm-model", default="Qwen/Qwen2.5-VL-3B-Instruct")
+    ap.add_argument("--verify", action="store_true",
+                    help="second-pass verification of numbers/ids (recommended; ~2x OCR cost)")
     # rapidocr engine
     ap.add_argument("--dpi", type=int, default=180)
     args = ap.parse_args()
@@ -146,6 +149,9 @@ def main() -> None:
             return tid, -1, 0.0
         if client is not None:
             blocks, npages = ocr_task_vlm(client, task, data_dir, args.split)
+            if args.verify:
+                pages = sorted((data_dir / "pages" / args.split / tid).glob("p*.png"))
+                blocks, vstats = verify_task(client, pages, blocks)
         else:
             blocks, npages = ocr_task_rapidocr(task, data_dir, args.split, args.dpi)
         # dedupe by id, keep longest text

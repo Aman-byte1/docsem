@@ -27,8 +27,8 @@ SELECTOR_DEFAULT = PROJECT_ROOT / "models" / "selector"
 
 # Default inference settings
 DEFAULT_TOP_K = 8          # candidate blocks fed to the solver
-DEFAULT_SAMPLES = 16       # self-consistency samples per task
-DEFAULT_TEMPERATURE = 0.5
+DEFAULT_SAMPLES = 10       # self-consistency samples per task
+DEFAULT_TEMPERATURE = 0.6
 DEFAULT_CONCURRENCY = 8
 
 OCR_PROMPT = """\

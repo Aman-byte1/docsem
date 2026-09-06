@@ -17,7 +17,6 @@ from .blocks import load_blocks, normalize_block_id, score_blocks_lexical, block
 from .config import SOLVE_PROMPT, DEFAULT_TOP_K
 from .llm import LLMClient
 from .normalize import exec_python, extract_json_object, normalize_answer
-from .trace import trace_literals_to_blocks
 
 _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _PCT_RE = re.compile(r'\bpercentage\b|\bpercent\b|\bprobability\b|\b%\b', re.IGNORECASE)
@@ -193,28 +192,6 @@ def solve_task(
     if not chosen["evidence"]:
         chosen["evidence"] = [candidates[0]["id"]]
     chosen["evidence"] = [i for i in chosen["evidence"] if i in all_ids] or [candidates[0]["id"]]
-
-    # --- Trace-based evidence correction ---
-    # After majority vote, verify the code's numeric literals match the attributed
-    # evidence. If a different block sourced more of the code's numbers, override.
-    if groups:
-        best_sample = max(best, key=sample_weight)
-        winning_code = best_sample.get("python_code", "")
-        chosen["meta"]["winning_code"] = winning_code[:500] if winning_code else ""
-        if winning_code and winning_code.strip():
-            traces = trace_literals_to_blocks(winning_code, blocks)
-            if traces:
-                current_count = sum(len(traces.get(e, [])) for e in chosen["evidence"])
-                traced_ranked = sorted(traces.items(), key=lambda kv: len(kv[1]), reverse=True)
-                traced_top, traced_lits = traced_ranked[0]
-                if (traced_top in all_ids
-                        and traced_top not in set(chosen["evidence"])
-                        and len(traced_lits) > current_count
-                        and len(traced_lits) >= 2):
-                    chosen["meta"]["trace_corrected"] = True
-                    chosen["meta"]["original_evidence"] = list(chosen["evidence"])
-                    chosen["evidence"] = [traced_top]
-
     return chosen
 
 

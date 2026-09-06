@@ -27,8 +27,8 @@ SELECTOR_DEFAULT = PROJECT_ROOT / "models" / "selector"
 
 # Default inference settings
 DEFAULT_TOP_K = 8          # candidate blocks fed to the solver
-DEFAULT_SAMPLES = 10       # self-consistency samples per task
-DEFAULT_TEMPERATURE = 0.6
+DEFAULT_SAMPLES = 16       # self-consistency samples per task
+DEFAULT_TEMPERATURE = 0.5
 DEFAULT_CONCURRENCY = 8
 
 OCR_PROMPT = """\
@@ -77,10 +77,10 @@ Return ONLY a JSON object:
 }}
 
 Rules:
-- "evidence": the block id(s) with the scenario question and its numbers (usually one).
-- "python_code": executable arithmetic from the evidence block's numbers.
+- "evidence": the SINGLE block id whose text contains the exact numbers you use in python_code. This is the block that states the quantitative question (usually exactly one block).
+- "python_code": executable arithmetic using ONLY numbers found in the evidence block.
   * The LAST line MUST be: result = <final answer expression>
-  * Use descriptive variable names and comments.
+  * Annotate each variable with its source block id, e.g.: revenue = 2452  # b14
   * If the question asks "what percentage", compute (part / whole) * 100.
   * If the question asks "how many" or "what is the total", compute the count.
   * Round to a whole number with round() when the question implies an integer answer.

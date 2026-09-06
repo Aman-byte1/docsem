@@ -102,7 +102,7 @@ def compute_trace_coverage(
     selected_set = set(selected_evidence)
 
     traced_blocks = set(traces.keys())
-    traced_literal_count = sum(len(v) for v in traces.values() if set([traces]) & selected_set)
+    traced_literal_count = sum(len(v) for bid, v in traces.items() if bid in selected_set)
 
     # Blocks that were selected but contributed no literals
     untraced = [bid for bid in selected_evidence if bid not in traced_blocks]

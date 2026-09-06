@@ -37,14 +37,33 @@ assert torch.cuda.is_available(), "CUDA not available - is this a GPU pod? (nvid
 print("GPU OK:", torch.cuda.get_device_name(0))
 PY
 
+# Authenticate once if HF_TOKEN is set (avoids 429 rate limits on downloads)
+if [ -n "${HF_TOKEN:-}" ]; then
+    hf auth login --token "$HF_TOKEN" >/dev/null 2>&1 || true
+fi
+
+# hf download with retry — HF rate-limits (429) are transient; resume is safe
+download_model () {
+    local repo="$1" dir="$2"
+    for attempt in 1 2 3 4 5; do
+        if hf download "$repo" --local-dir "$dir"; then
+            return 0
+        fi
+        echo "  download attempt $attempt/5 failed (often a 429 rate limit) — waiting 60s and resuming..."
+        sleep 60
+    done
+    echo "ERROR: could not download $repo after 5 attempts. Set HF_TOKEN and re-run."
+    return 1
+}
+
 echo "==> [2/4] Model downloads (if missing)"
 if [ ! -f "$VL_DIR/config.json" ]; then
-    hf download "$VL_MODEL" --local-dir "$VL_DIR"
+    download_model "$VL_MODEL" "$VL_DIR"
 else
     echo "VL model already present at $VL_DIR"
 fi
 if [ "$SINGLE" -eq 0 ] && [ ! -f "$TXT_DIR/config.json" ]; then
-    hf download "$TXT_MODEL" --local-dir "$TXT_DIR"
+    download_model "$TXT_MODEL" "$TXT_DIR"
 else
     echo "Text model already present at $TXT_DIR"
 fi
